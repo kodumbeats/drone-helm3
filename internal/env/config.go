@@ -12,7 +12,8 @@ import (
 
 var (
 	justNumbers    = regexp.MustCompile(`^\d+$`)
-	deprecatedVars = []string{"PURGE", "RECREATE_PODS", "TILLER_NS", "UPGRADE", "CANARY_IMAGE", "CLIENT_ONLY", "STABLE_REPO_URL"}
+	deprecatedVars = []string{"PURGE", "RECREATE_PODS", "UPGRADE", "CANARY_IMAGE", "CLIENT_ONLY", "STABLE_REPO_URL"}
+	convertVars    = []string{"DELETE_V2_RELEASES", "RELEASE_VERSIONS_MAX", "TILLER_NS", "TILLER_LABEL"}
 )
 
 // The Config struct captures the `settings` and `environment` blocks in the application's drone
@@ -50,6 +51,11 @@ type Config struct {
 	AtomicUpgrade      bool     `split_words:"true"`                 // Pass --atomic to `helm upgrade`
 	CleanupOnFail      bool     `envconfig:"cleanup_failed_upgrade"` // Pass --cleanup-on-fail to `helm upgrade`
 	LintStrictly       bool     `split_words:"true"`                 // Pass --strict to `helm lint`
+	EnableV2Conversion bool     `split_words:"true"`                 // Whether or not to use 2to3 convert to migrate Releases from v2 to v3
+	DeleteV2Releases   bool     `split_words:"true"`                 // Pass --delete-v2-releases option for 2to3 convert command
+	MaxReleaseVersions int      `split_words:"true"`                 // Pass --release-versions-max option for 2to3 convert command
+	TillerNS           string   `envconfig:"tiller_ns"`              // Tiller namespace (--tiller-ns) for 2to3 convert command
+	TillerLabel        string   `split_words:"true"`                 // Tiller label selector (--label) for 2to3 convert command
 
 	Stdout io.Writer `ignored:"true"`
 	Stderr io.Writer `ignored:"true"`
@@ -97,7 +103,12 @@ func NewConfig(stdout, stderr io.Writer) (*Config, error) {
 		cfg.logDebug()
 	}
 
-	cfg.deprecationWarn()
+	// Deprecation messages
+	cfg.varsMessage(deprecatedVars, "Warning: ignoring deprecated '%s' setting\n")
+
+	if !cfg.EnableV2Conversion && (cfg.Command != "convert") {
+		cfg.varsMessage(convertVars, "Warning: ignoring '%s' setting as is only used when 'mode' is 'convert' or 'enable_v2_conversion' is 'true'\n")
+	}
 
 	return &cfg, nil
 }
@@ -134,14 +145,15 @@ func (cfg Config) logDebug() {
 	fmt.Fprintf(cfg.Stderr, "Generated config: %+v\n", cfg)
 }
 
-func (cfg *Config) deprecationWarn() {
-	for _, varname := range deprecatedVars {
+func (cfg *Config) varsMessage(vars []string, format string) {
+	for _, varname := range vars {
 		_, barePresent := os.LookupEnv(varname)
 		_, prefixedPresent := os.LookupEnv("PLUGIN_" + varname)
 		if barePresent || prefixedPresent {
-			fmt.Fprintf(cfg.Stderr, "Warning: ignoring deprecated '%s' setting\n", strings.ToLower(varname))
+			fmt.Fprintf(cfg.Stderr, format, strings.ToLower(varname))
 		}
 	}
+
 }
 
 // settingAliases provides alternate environment variable names for certain settings, either because
