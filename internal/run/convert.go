@@ -7,8 +7,13 @@ import (
 	convertcmd "github.com/helm/helm-2to3/cmd"
 	"github.com/helm/helm-2to3/pkg/common"
 	"github.com/pelotech/drone-helm3/internal/env"
+	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func v3ReleaseFound(release string, cfg *action.Configuration) bool {
@@ -20,6 +25,22 @@ func v3ReleaseFound(release string, cfg *action.Configuration) bool {
 
 	log.Printf("No v3 Release of %s found", release)
 	return false
+}
+
+// clientsetFromFile returns a ready-to-use client from a kubeconfig file
+func clientsetFromFile(path string) (*kubernetes.Clientset, error) {
+	config, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load admin kubeconfig")
+	}
+
+	overrides := clientcmd.ConfigOverrides{Timeout: "15s"}
+	clientConfig, err := clientcmd.NewDefaultClientConfig(*config, &overrides).ClientConfig()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create API client configuration from kubeconfig")
+	}
+
+	return kubernetes.NewForConfig(clientConfig)
 }
 
 // Convert holds the parameters to run the Convert action
@@ -44,6 +65,17 @@ func NewConvert(cfg env.Config, kubeConfig string, kubeContext string) *Convert 
 		cfg.MaxReleaseVersions = 10
 	}
 
+	if cfg.TillerNS == "" {
+		cfg.TillerNS = "kube-system"
+	}
+
+	if cfg.TillerLabel == "" {
+		cfg.TillerLabel = "OWNER=TILLER"
+	}
+
+	// Build the label selector "OWNER=TILLER,NAME=myapp"
+	cfg.TillerLabel += fmt.Sprintf(",NAME=%s", cfg.Release)
+
 	convert.convertOptions = convertcmd.ConvertOptions{
 		DeleteRelease:      cfg.DeleteV2Releases,
 		DryRun:             cfg.DryRun,
@@ -63,6 +95,31 @@ func NewConvert(cfg env.Config, kubeConfig string, kubeContext string) *Convert 
 	}
 
 	return convert
+}
+
+// getV2ReleaseConfigmaps returns a list of configmaps that are helm v2 releases
+func (c *Convert) getV2ReleaseConfigmaps(clientset kubernetes.Interface) (*corev1.ConfigMapList, error) {
+
+	return clientset.CoreV1().ConfigMaps(c.convertOptions.TillerNamespace).List(metav1.ListOptions{
+		LabelSelector: c.convertOptions.TillerLabel,
+	})
+}
+
+// preserveV2ReleaseConfigmaps keeps the helm v2 configmaps by modifying a label
+func (c *Convert) preserveV2ReleaseConfigmaps(clientset kubernetes.Interface, configmaps *corev1.ConfigMapList, ownerLabelValue string) error {
+
+	tillerNamespace := c.convertOptions.TillerNamespace
+
+	log.Printf("Preserving release versions of %s", c.convertOptions.ReleaseName)
+	for _, item := range configmaps.Items {
+		item.Labels["OWNER"] = ownerLabelValue
+
+		if _, err := clientset.CoreV1().ConfigMaps(tillerNamespace).Update(&item); err != nil {
+			return fmt.Errorf("Failure preserving release version %s", item.Name)
+		}
+	}
+
+	return nil
 }
 
 // Execute runs Convert from 2to3 package
@@ -88,10 +145,39 @@ func (c *Convert) Execute() error {
 		Context: c.kubeContext,
 	}
 
-	return convertcmd.Convert(c.convertOptions, kc)
+	if !c.convertOptions.DeleteRelease {
+		clientset, err := clientsetFromFile(c.kubeConfig)
+		if err != nil {
+			return err
+		}
+
+		configmaps, err := c.getV2ReleaseConfigmaps(clientset)
+		if err != nil {
+			return err
+		}
+
+		if err := convertcmd.Convert(c.convertOptions, kc); err != nil {
+			return err
+		}
+
+		if err := c.preserveV2ReleaseConfigmaps(clientset, configmaps, "converted-to-helm3"); err != nil {
+			return err
+		}
+	} else {
+		if err := convertcmd.Convert(c.convertOptions, kc); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-// Prepare is not used but it's required to fulfill the Step interface
+// Prepare checks required inputs
 func (c *Convert) Prepare() error {
+
+	if c.convertOptions.ReleaseName == "" {
+		return fmt.Errorf("release is required")
+	}
+
 	return nil
 }
