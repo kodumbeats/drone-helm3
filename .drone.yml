@@ -1,32 +1,61 @@
+---
 kind: pipeline
-type: docker
+type: kubernetes
 name: default
-
 
 steps:
   - name: test
-    image: golang:1.13
+    image: golangci/golangci-lint:v1.30.0-alpine
     commands:
-      - go test ./cmd/... ./internal/...
-      - go vet ./cmd/... ./internal/...
-  - name: lint
-    image: cytopia/golint
+      - apk update
+      - apk add make
+      - make test
+
+  - name: snyk
+    image: snyk/snyk:golang-1.14
+    environment:
+      SNYK_TOKEN:
+        from_secret: snyk_token
     commands:
-      - golint -set_exit_status ./cmd/... ./internal/...
-  - name: build
-    image: golang:1.13
-    commands:
-      - go build -o build/drone-helm cmd/drone-helm/main.go
+      - snyk monitor
+    when:
+      event: 
+        - push
+
   - name: publish_linux_amd64
     image: plugins/docker
     settings:
-      auto_tag: true
+      registry: quay.io
+      repo: quay.io/mongodb/drone-helm
       username:
         from_secret: docker_username
       password:
         from_secret: docker_password
-      repo:
-        from_secret: plugin_repo
-      dockerfile: Dockerfile
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
     when:
-      event: [ tag, push ]
+      branch:
+        - master
+      event:
+        - push
+
+  - name: publish_linux_amd64_tag
+    image: plugins/docker
+    settings:
+      registry: quay.io
+      repo: quay.io/mongodb/drone-helm
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+      tags:
+        - git-${DRONE_COMMIT_SHA:0:7}
+        - ${DRONE_TAG}
+    when:
+      event:
+        - tag
+---
+kind: signature
+hmac: 9a715e0273d343b041792ca9b4ddf0f40baf1de8e32f1b5ab4783d77a0ffbc7a
+
+...
