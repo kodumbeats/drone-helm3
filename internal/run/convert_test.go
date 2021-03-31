@@ -3,6 +3,7 @@ package run
 import (
 	"io/ioutil"
 	"testing"
+	ctx "context"
 
 	"github.com/mongodb-forks/drone-helm3/internal/env"
 
@@ -205,7 +206,7 @@ func TestPreserveV2ReleaseConfigmaps(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		cm, err := clientset.CoreV1().ConfigMaps(test.namespace).Get(test.configmapName, metav1.GetOptions{})
+		cm, err := clientset.CoreV1().ConfigMaps(test.namespace).Get(ctx.Background(), test.configmapName, metav1.GetOptions{})
 		assert.NoError(t, err)
 		assert.Equal(t, cm.Labels["OWNER"], test.ownerLabelValue)
 	}
@@ -248,7 +249,7 @@ func TestDoConvertWithV2Release(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		cm, err := clientset.CoreV1().ConfigMaps(test.namespace).Get(test.configmapName, metav1.GetOptions{})
+		cm, err := clientset.CoreV1().ConfigMaps(test.namespace).Get(ctx.Background(), test.configmapName, metav1.GetOptions{})
 		assert.NoError(t, err)
 		assert.Equal(t, cm.Labels["OWNER"], test.ownerLabelValue)
 	}
