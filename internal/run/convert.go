@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"log"
+	ctx "context"
 
 	convertcmd "github.com/helm/helm-2to3/cmd"
 	"github.com/helm/helm-2to3/pkg/common"
@@ -112,7 +113,7 @@ func NewConvert(cfg env.Config, kubeConfig string, kubeContext string) *Convert 
 // getV2ReleaseConfigmaps returns a list of configmaps that are helm v2 releases
 func (c *Convert) getV2ReleaseConfigmaps(clientset kubernetes.Interface) (*corev1.ConfigMapList, error) {
 
-	return clientset.CoreV1().ConfigMaps(c.convertOptions.TillerNamespace).List(metav1.ListOptions{
+	return clientset.CoreV1().ConfigMaps(c.convertOptions.TillerNamespace).List(ctx.Background(), metav1.ListOptions{
 		LabelSelector: c.convertOptions.TillerLabel,
 	})
 }
@@ -126,7 +127,7 @@ func (c *Convert) preserveV2ReleaseConfigmaps(clientset kubernetes.Interface, co
 	for _, item := range configmaps.Items {
 		item.Labels["OWNER"] = ownerLabelValue
 
-		if _, err := clientset.CoreV1().ConfigMaps(tillerNamespace).Update(&item); err != nil {
+		if _, err := clientset.CoreV1().ConfigMaps(tillerNamespace).Update(ctx.Background(), &item, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("Failure preserving release version %s", item.Name)
 		}
 	}
