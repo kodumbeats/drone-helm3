@@ -227,3 +227,27 @@ func (suite *UpgradeTestSuite) TestPrepareDebugFlag() {
 	suite.Equal(want, stderr.String())
 	suite.Equal("", stdout.String())
 }
+
+func (suite *UpgradeTestSuite) TestPrepareSkipCrdsFlag() {
+	defer suite.ctrl.Finish()
+
+	cfg := env.NewTestConfig(suite.T())
+	cfg.Chart = "at40"
+	cfg.Release = "cabbages_smell_great"
+	cfg.SkipCrds = true
+
+	u := NewUpgrade(*cfg)
+
+	command = func(path string, args ...string) cmd {
+		suite.Equal(helmBin, path)
+		suite.Equal([]string{"upgrade", "--install", "--skip-crds", "--history-max=10", "cabbages_smell_great", "at40"}, args)
+
+		return suite.mockCmd
+	}
+
+	suite.mockCmd.EXPECT().Stdout(gomock.Any())
+	suite.mockCmd.EXPECT().Stderr(gomock.Any())
+
+	err := u.Prepare()
+	suite.Require().Nil(err)
+}
