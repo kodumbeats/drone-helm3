@@ -62,6 +62,8 @@ func determineSteps(cfg env.Config) *func(env.Config) []Step {
 		return &uninstall
 	case "lint":
 		return &lint
+	case "list":
+		return &list
 	case "convert":
 		return &convert
 	case "help":
@@ -144,6 +146,10 @@ var lint = func(cfg env.Config) []Step {
 	}
 	steps = append(steps, run.NewLint(cfg))
 	return steps
+}
+
+var list = func(cfg env.Config) []Step {
+	return []Step{run.NewList(cfg)}
 }
 
 var help = func(cfg env.Config) []Step {

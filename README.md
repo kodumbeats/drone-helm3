@@ -65,6 +65,21 @@ steps:
         from_secret: kubernetes_token
 ```
 
+### List
+
+```yaml
+steps:
+  - name: list
+    image: quay.io/mongodb/drone-helm:v3
+    settings:
+      mode: list
+      namespace: my-namespace
+    environment:
+      KUBE_API_SERVER: https://my.kubernetes.installation/clusters/a-1234
+      KUBE_TOKEN:
+        from_secret: kubernetes_token
+```
+
 ### Uninstallation
 
 ```yaml
